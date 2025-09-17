@@ -1,0 +1,278 @@
+import telebot
+import os
+import json
+import random
+import string
+
+bot = telebot.TeleBot("7454505092:AAE4SOvZ5nG-RlY8DfN3xXZBnNSyvazxgck")
+SUPER_ADMIN = 6215236648  # Super admin ID
+
+# Load data from JSON
+try:
+    movies = json.load(open("movies.json"))
+except:
+    movies = {}  # Format: {"code": {"file_id": "telegram_file_id", "description": "desc"}}
+
+try:
+    admins = json.load(open("admins.json"))
+except:
+    admins = [SUPER_ADMIN]  # Adminlar ro'yxati
+
+try:
+    channels = json.load(open("channels.json"))
+except:
+    channels = []  # Kanallar ro'yxati (e.g., "@channel")
+
+try:
+    users = set(json.load(open("users.json")))
+except:
+    users = set()  # Foydalanuvchilar ro'yxati
+
+# Pending actions
+pending = {}  # {user_id: {"action": "add_movie", "step": 1, "data": {}}}
+
+def save_data():
+    json.dump(movies, open("movies.json", "w"))
+    json.dump(admins, open("admins.json", "w"))
+    json.dump(channels, open("channels.json", "w"))
+    json.dump(list(users), open("users.json", "w"))
+
+def generate_unique_code(length=8):
+    while True:
+        code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
+        if code not in movies:
+            return code
+
+def is_admin(user_id):
+    return user_id in admins
+
+def check_subscription(user_id):
+    if not channels:
+        return True
+    for channel in channels:
+        try:
+            member = bot.get_chat_member(channel, user_id)
+            if member.status in ['left', 'kicked', 'restricted']:
+                return False
+        except:
+            return False
+    return True
+
+@bot.message_handler(commands=['start'])
+def start(m):
+    user_id = m.from_user.id
+    users.add(user_id)
+    save_data()
+    
+    if check_subscription(user_id):
+        bot.reply_to(m, "Xush kelibsiz! Kino kodini yozing.")
+    else:
+        markup = telebot.types.InlineKeyboardMarkup()
+        for channel in channels:
+            markup.add(telebot.types.InlineKeyboardButton(f"Obuna bo'ling: {channel}", url=f"https://t.me/{channel.lstrip('@')}"))
+        markup.add(telebot.types.InlineKeyboardButton("Tekshirish", callback_data="check_sub"))
+        bot.reply_to(m, "Botdan foydalanish uchun quyidagi kanallarga obuna bo'ling:", reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data == "check_sub")
+def check_sub_callback(call):
+    user_id = call.from_user.id
+    if check_subscription(user_id):
+        bot.answer_callback_query(call.id, "Obuna tasdiqlandi! Kino kodini yozing.")
+        bot.edit_message_text("Xush kelibsiz! Kino kodini yozing.", call.message.chat.id, call.message.message_id)
+    else:
+        bot.answer_callback_query(call.id, "Hali obuna bo'lmagansiz. Iltimos, obuna bo'ling.", show_alert=True)
+
+# Super admin: Admin qo'shish/o'chirish
+@bot.message_handler(commands=['add_admin'])
+def add_admin(m):
+    if m.from_user.id != SUPER_ADMIN:
+        return
+    try:
+        admin_id = int(m.text.split()[1])
+        if admin_id not in admins:
+            admins.append(admin_id)
+            save_data()
+            bot.reply_to(m, f"Admin qo'shildi: {admin_id}")
+        else:
+            bot.reply_to(m, "Bu foydalanuvchi allaqachon admin.")
+    except:
+        bot.reply_to(m, "Foydalanuvchi ID'sini kiriting: /add_admin <ID>")
+
+@bot.message_handler(commands=['remove_admin'])
+def remove_admin(m):
+    if m.from_user.id != SUPER_ADMIN:
+        return
+    try:
+        admin_id = int(m.text.split()[1])
+        if admin_id in admins and admin_id != SUPER_ADMIN:
+            admins.remove(admin_id)
+            save_data()
+            bot.reply_to(m, f"Admin o'chirildi: {admin_id}")
+        else:
+            bot.reply_to(m, "Bu foydalanuvchi admin emas yoki super admin.")
+    except:
+        bot.reply_to(m, "Foydalanuvchi ID'sini kiriting: /remove_admin <ID>")
+
+# Kanallarni boshqarish
+@bot.message_handler(commands=['add_channel'])
+def add_channel(m):
+    if not is_admin(m.from_user.id):
+        return
+    try:
+        channel = m.text.split()[1]
+        if channel not in channels:
+            channels.append(channel)
+            save_data()
+            bot.reply_to(m, f"Kanal qo'shildi: {channel}")
+        else:
+            bot.reply_to(m, "Bu kanal allaqachon mavjud.")
+    except:
+        bot.reply_to(m, "Kanal usernamesini kiriting: /add_channel @channel")
+
+@bot.message_handler(commands=['remove_channel'])
+def remove_channel(m):
+    if not is_admin(m.from_user.id):
+        return
+    try:
+        channel = m.text.split()[1]
+        if channel in channels:
+            channels.remove(channel)
+            save_data()
+            bot.reply_to(m, f"Kanal o'chirildi: {channel}")
+        else:
+            bot.reply_to(m, "Bu kanal mavjud emas.")
+    except:
+        bot.reply_to(m, "Kanal usernamesini kiriting: /remove_channel @channel")
+
+# Kino qo'shish
+@bot.message_handler(commands=['add_movie'])
+def add_movie_start(m):
+    if not is_admin(m.from_user.id):
+        return
+    pending[m.from_user.id] = {"action": "add_movie", "step": 1, "data": {}}
+    bot.reply_to(m, "Kino videosini yuboring (video yoki document sifatida).")
+
+@bot.message_handler(content_types=['video', 'document'])
+def handle_movie_video(m):
+    user_id = m.from_user.id
+    if user_id not in pending or pending[user_id]["action"] != "add_movie" or pending[user_id]["step"] != 1:
+        return
+    if m.video:
+        f = m.video
+    elif m.document:
+        f = m.document
+    else:
+        return
+    pending[user_id]["data"]["file_id"] = f.file_id
+    pending[user_id]["step"] = 2
+    bot.reply_to(m, "Endi kino tavsifini yuboring.")
+
+@bot.message_handler(func=lambda m: m.from_user.id in pending and pending[m.from_user.id]["action"] == "add_movie" and pending[m.from_user.id]["step"] == 2)
+def handle_movie_desc(m):
+    user_id = m.from_user.id
+    desc = m.text.strip()
+    code = generate_unique_code()
+    movies[code] = {"file_id": pending[user_id]["data"]["file_id"], "description": desc}
+    save_data()
+    del pending[user_id]
+    bot.reply_to(m, f"✅ Kino qo'shildi: Kod - {code}\nTavsif: {desc}")
+
+# Kino o'chirish
+@bot.message_handler(commands=['delete_movie'])
+def delete_movie(m):
+    if not is_admin(m.from_user.id):
+        return
+    try:
+        code = m.text.split()[1]
+        if code in movies:
+            del movies[code]
+            save_data()
+            bot.reply_to(m, f"✅ Kino o'chirildi: {code}")
+        else:
+            bot.reply_to(m, "Kod topilmadi.")
+    except:
+        bot.reply_to(m, "Kodni kiriting: /delete_movie <code>")
+
+# Kino tahrirlash
+@bot.message_handler(commands=['edit_movie'])
+def edit_movie_start(m):
+    if not is_admin(m.from_user.id):
+        return
+    try:
+        parts = m.text.split(maxsplit=3)
+        if len(parts) < 3:
+            bot.reply_to(m, "Foydalanish: /edit_movie <old_code> code <new_code> yoki /edit_movie <old_code> desc <new_desc>")
+            return
+        old_code = parts[1]
+        if old_code not in movies:
+            bot.reply_to(m, "Kod topilmadi.")
+            return
+        if parts[2] == "code":
+            new_code = parts[3]
+            if new_code in movies:
+                bot.reply_to(m, "Yangi kod allaqachon mavjud.")
+                return
+            movies[new_code] = movies.pop(old_code)
+            save_data()
+            bot.reply_to(m, f"✅ Kod o'zgartirildi: {old_code} -> {new_code}")
+        elif parts[2] == "desc":
+            new_desc = parts[3]
+            movies[old_code]["description"] = new_desc
+            save_data()
+            bot.reply_to(m, f"✅ Tavsif o'zgartirildi: {old_code}")
+        else:
+            bot.reply_to(m, "Noto'g'ri parametr: code yoki desc")
+    except:
+        bot.reply_to(m, "Xato. Foydalanish: /edit_movie <old_code> code <new_code> yoki /edit_movie <old_code> desc <new_desc>")
+
+# Broadcast
+@bot.message_handler(commands=['broadcast'])
+def broadcast_start(m):
+    if not is_admin(m.from_user.id):
+        return
+    pending[m.from_user.id] = {"action": "broadcast", "step": 1}
+    bot.reply_to(m, "Barcha foydalanuvchilarga yuboriladigan xabarni yuboring (matn, rasm, video va h.k.).")
+
+@bot.message_handler(func=lambda m: m.from_user.id in pending and pending[m.from_user.id]["action"] == "broadcast" and pending[m.from_user.id]["step"] == 1)
+def handle_broadcast(m):
+    user_id = m.from_user.id
+    sent = 0
+    failed = 0
+    for u in list(users):
+        try:
+            bot.copy_message(u, m.chat.id, m.message_id)
+            sent += 1
+        except:
+            failed += 1
+    del pending[user_id]
+    bot.reply_to(m, f"Xabar yuborildi: {sent} foydalanuvchiga muvaffaqiyatli, {failed} ta xato.")
+
+@bot.message_handler(content_types=['photo', 'video', 'document', 'audio'], func=lambda m: m.from_user.id in pending and pending[m.from_user.id]["action"] == "broadcast" and pending[m.from_user.id]["step"] == 1)
+def handle_broadcast_media(m):
+    handle_broadcast(m)
+
+# Statistika
+@bot.message_handler(commands=['stats'])
+def stats(m):
+    if not is_admin(m.from_user.id):
+        return
+    reg_users = len(users)
+    movie_count = len(movies)
+    active_users = reg_users  # Faol foydalanuvchilar sifatida ro'yxatdan o'tganlar
+    bot.reply_to(m, f"Statistika:\nRo'yxatdan o'tganlar: {reg_users}\nFoydalanayotganlar: {active_users}\nKinolar soni: {movie_count}")
+
+# Kino olish
+@bot.message_handler(func=lambda m: not m.text.startswith('/') and check_subscription(m.from_user.id))
+def get_movie(m):
+    code = m.text.strip()
+    if code in movies:
+        bot.send_video(m.chat.id, movies[code]["file_id"], caption=movies[code]["description"])
+    else:
+        bot.reply_to(m, "❌ Kod topilmadi")
+
+# Obuna bo'lmaganlar
+@bot.message_handler(func=lambda m: not m.text.startswith('/') and not check_subscription(m.from_user.id))
+def unsubscribed(m):
+    start(m)
+
+bot.infinity_polling()
