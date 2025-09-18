@@ -5,7 +5,7 @@ import random
 import string
 import time  # Rate limiting uchun
 
-bot = telebot.TeleBot("8079961942:AAHCHjokG5bqID9tfo38mo214F41ogumd9A")
+bot = telebot.TeleBot("7960038374:AAE8oIdCkpqOdU3EDAq1GGC1-f46PjBevPo")
 SUPER_ADMIN = 6215236648  # Super admin ID
 
 
