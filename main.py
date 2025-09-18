@@ -3,9 +3,13 @@ import os
 import json
 import random
 import string
+import time  # Rate limiting uchun
 
-bot = telebot.TeleBot("7454505092:AAE4SOvZ5nG-RlY8DfN3xXZBnNSyvazxgck")
+bot = telebot.TeleBot("7814660759:AAH3oA2dIWWJXCHmxXNU4d1oM475AlqJ0K0")
 SUPER_ADMIN = 6215236648  # Super admin ID
+
+
+
 
 # Load data from JSON
 try:
@@ -37,11 +41,17 @@ def save_data():
     json.dump(channels, open("channels.json", "w"))
     json.dump(list(users), open("users.json", "w"))
 
-def generate_unique_code(length=8):
-    while True:
-        code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
+def generate_unique_code(length=3):
+    if len(movies) >= 1000:  # 000-999 gacha 1000 ta imkoniyat
+        raise ValueError("Kino kodlari tugadi! 3 xonali raqamlar chegarasiga yetdi.")
+    attempts = 0
+    max_attempts = 100  # Cheksiz tsiklni oldini olish
+    while attempts < max_attempts:
+        code = ''.join(random.choices(string.digits, k=length))  # Faqat raqamlar
         if code not in movies:
             return code
+        attempts += 1
+    raise ValueError("Yangi 3 xonali kod topilmadi. Iltimos, boshqa uzunlik sinab ko'ring.")
 
 def is_admin(user_id):
     return user_id in admins
@@ -65,7 +75,7 @@ def start(m):
     save_data()
     
     if check_subscription(user_id):
-        bot.reply_to(m, "Xush kelibsiz! Kino kodini yozing.")
+        bot.reply_to(m, "Xush kelibsiz! 3 xonali kino kodini yozing (masalan, 123).")
     else:
         markup = telebot.types.InlineKeyboardMarkup()
         for channel in channels:
@@ -77,8 +87,8 @@ def start(m):
 def check_sub_callback(call):
     user_id = call.from_user.id
     if check_subscription(user_id):
-        bot.answer_callback_query(call.id, "Obuna tasdiqlandi! Kino kodini yozing.")
-        bot.edit_message_text("Xush kelibsiz! Kino kodini yozing.", call.message.chat.id, call.message.message_id)
+        bot.answer_callback_query(call.id, "Obuna tasdiqlandi! 3 xonali kino kodini yozing.")
+        bot.edit_message_text("Xush kelibsiz! 3 xonali kino kodini yozing (masalan, 123).", call.message.chat.id, call.message.message_id)
     else:
         bot.answer_callback_query(call.id, "Hali obuna bo'lmagansiz. Iltimos, obuna bo'ling.", show_alert=True)
 
@@ -171,11 +181,15 @@ def handle_movie_video(m):
 def handle_movie_desc(m):
     user_id = m.from_user.id
     desc = m.text.strip()
-    code = generate_unique_code()
-    movies[code] = {"file_id": pending[user_id]["data"]["file_id"], "description": desc}
-    save_data()
-    del pending[user_id]
-    bot.reply_to(m, f"✅ Kino qo'shildi: Kod - {code}\nTavsif: {desc}")
+    try:
+        code = generate_unique_code()
+        movies[code] = {"file_id": pending[user_id]["data"]["file_id"], "description": desc}
+        save_data()
+        del pending[user_id]
+        bot.reply_to(m, f"✅ Kino qo'shildi: Kod - {code}\nTavsif: {desc}")
+    except ValueError as e:
+        bot.reply_to(m, f"❌ Xato: {str(e)}")
+        del pending[user_id]
 
 # Kino o'chirish
 @bot.message_handler(commands=['delete_movie'])
@@ -212,9 +226,15 @@ def edit_movie_start(m):
             if new_code in movies:
                 bot.reply_to(m, "Yangi kod allaqachon mavjud.")
                 return
-            movies[new_code] = movies.pop(old_code)
-            save_data()
-            bot.reply_to(m, f"✅ Kod o'zgartirildi: {old_code} -> {new_code}")
+            try:
+                if len(new_code) != 3 or not new_code.isdigit():
+                    bot.reply_to(m, "Yangi kod 3 xonali raqam bo'lishi kerak (masalan, 123).")
+                    return
+                movies[new_code] = movies.pop(old_code)
+                save_data()
+                bot.reply_to(m, f"✅ Kod o'zgartirildi: {old_code} -> {new_code}")
+            except ValueError as e:
+                bot.reply_to(m, f"❌ Xato: {str(e)}")
         elif parts[2] == "desc":
             new_desc = parts[3]
             movies[old_code]["description"] = new_desc
@@ -230,26 +250,45 @@ def edit_movie_start(m):
 def broadcast_start(m):
     if not is_admin(m.from_user.id):
         return
+    if m.from_user.id in pending:
+        bot.reply_to(m, "Avval boshqa actionni tugating!")
+        return
     pending[m.from_user.id] = {"action": "broadcast", "step": 1}
     bot.reply_to(m, "Barcha foydalanuvchilarga yuboriladigan xabarni yuboring (matn, rasm, video va h.k.).")
 
-@bot.message_handler(func=lambda m: m.from_user.id in pending and pending[m.from_user.id]["action"] == "broadcast" and pending[m.from_user.id]["step"] == 1)
-def handle_broadcast(m):
+# Matn uchun broadcast
+@bot.message_handler(func=lambda m: m.from_user.id in pending and pending[m.from_user.id]["action"] == "broadcast" and pending[m.from_user.id]["step"] == 1 and m.text)
+def handle_broadcast_text(m):
+    _handle_broadcast(m)
+
+# Media uchun broadcast
+@bot.message_handler(content_types=['photo', 'video', 'document', 'audio'], func=lambda m: m.from_user.id in pending and pending[m.from_user.id]["action"] == "broadcast" and pending[m.from_user.id]["step"] == 1)
+def handle_broadcast_media(m):
+    _handle_broadcast(m)
+
+def _handle_broadcast(m):
     user_id = m.from_user.id
+    if len(users) == 0:
+        bot.reply_to(m, "❌ Foydalanuvchilar ro'yxati bo'sh! Avval foydalanuvchilar /start bosing.")
+        del pending[user_id]
+        return
+    
     sent = 0
     failed = 0
     for u in list(users):
         try:
             bot.copy_message(u, m.chat.id, m.message_id)
             sent += 1
-        except:
+            time.sleep(0.5)  # Rate limit: 30/sec
+        except Exception as e:
             failed += 1
+            if "chat not found" in str(e).lower() or "blocked" in str(e).lower():
+                users.discard(u)
+            print(f"Xato {u}: {e}")  # Log uchun
+    
+    save_data()  # Users yangilangan bo'lsa
     del pending[user_id]
-    bot.reply_to(m, f"Xabar yuborildi: {sent} foydalanuvchiga muvaffaqiyatli, {failed} ta xato.")
-
-@bot.message_handler(content_types=['photo', 'video', 'document', 'audio'], func=lambda m: m.from_user.id in pending and pending[m.from_user.id]["action"] == "broadcast" and pending[m.from_user.id]["step"] == 1)
-def handle_broadcast_media(m):
-    handle_broadcast(m)
+    bot.reply_to(m, f"✅ Xabar yuborildi: {sent} muvaffaqiyatli, {failed} xato. (Jami: {len(users)})")
 
 # Statistika
 @bot.message_handler(commands=['stats'])
