@@ -337,6 +337,9 @@
 
 
 
+
+
+
 import telebot
 import os
 import psycopg2
@@ -351,7 +354,6 @@ import logging
 
 # Logging sozlamalari
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
 
 bot = telebot.TeleBot("7960038374:AAE8oIdCkpqOdU3EDAq1GGC1-f46PjBevPo")
 SUPER_ADMIN = 6215236648  # Super admin ID
@@ -375,6 +377,9 @@ def create_tables():
         conn = get_db_connection()
         cur = conn.cursor()
         
+        # Eski jadvallarni o'chirish (agar kerak bo'lsa)
+        cur.execute("DROP TABLE IF EXISTS movies, admins, channels, users CASCADE;")
+        
         # Movies table
         cur.execute("""
             CREATE TABLE IF NOT EXISTS movies (
@@ -385,11 +390,11 @@ def create_tables():
             );
         """)
         
-        # Admins table
+        # Admins table (user_id BIGINT ga o'zgartirildi)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS admins (
                 id SERIAL PRIMARY KEY,
-                user_id INTEGER UNIQUE NOT NULL
+                user_id BIGINT UNIQUE NOT NULL
             );
         """)
         
@@ -401,11 +406,11 @@ def create_tables():
             );
         """)
         
-        # Users table
+        # Users table (user_id BIGINT ga o'zgartirildi)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id SERIAL PRIMARY KEY,
-                user_id INTEGER UNIQUE NOT NULL
+                user_id BIGINT UNIQUE NOT NULL
             );
         """)
         
@@ -503,7 +508,8 @@ def add_admin(user_id):
         cur.execute("INSERT INTO admins (user_id) VALUES (%s) ON CONFLICT (user_id) DO NOTHING;", (user_id,))
         conn.commit()
         return True
-    except:
+    except Exception as e:
+        logging.error(f"Error adding admin: {e}")
         return False
     finally:
         cur.close()
@@ -538,7 +544,8 @@ def add_channel(channel_name):
         cur.execute("INSERT INTO channels (channel_name) VALUES (%s) ON CONFLICT (channel_name) DO NOTHING;", (channel_name,))
         conn.commit()
         return True
-    except:
+    except Exception as e:
+        logging.error(f"Error adding channel: {e}")
         return False
     finally:
         cur.close()
