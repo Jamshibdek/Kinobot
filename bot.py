@@ -363,7 +363,7 @@ bot = telebot.TeleBot("7960038374:AAE8oIdCkpqOdU3EDAq1GGC1-f46PjBevPo")
 SUPER_ADMIN = 6215236648  # Super admin ID
 
 # PostgreSQL connection
-DATABASE_URL = "postgresql://postgres:XXpcjBwTRLctqMyJybrFXNcvnzwgxaRu@postgres.railway.internal:5432/railway")
+DATABASE_URL = "postgresql://postgres:XXpcjBwTRLctqMyJybrFXNcvnzwgxaRu@postgres.railway.internal:5432/railway"
 
 def get_db_connection():
     if not DATABASE_URL:
