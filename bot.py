@@ -349,12 +349,11 @@ import random
 import string
 import time
 
-bot = telebot.TeleBot(os.environ.get("BOT_TOKEN"))
+bot = telebot.TeleBot("7960038374:AAE8oIdCkpqOdU3EDAq1GGC1-f46PjBevPo")
 SUPER_ADMIN = 6215236648  # Super admin ID
 
 # PostgreSQL connection
-DATABASE_URL = os.environ.get('DATABASE_URL')
-conn = None
+DATABASE_URL = "postgresql://postgres:XXpcjBwTRLctqMyJybrFXNcvnzwgxaRu@postgres.railway.internal:5432/railway"
 
 def get_db_connection():
     global conn
