@@ -406,9 +406,9 @@ def start(m):
 @bot.callback_query_handler(func=lambda call: call.data == "check_sub")
 def check_sub_callback(call):
     user_id = call.from_user.id
-    if check_subscription(user_id):
-        bot.answer_callback_query(call.id, "Obuna tasdiqlandi! Kino kodini yozing.")
-        bot.edit_message_text("Xush kelibsiz! Kino kodini yozing.", call.message.chat.id, call.message.message_id)
+    if check_subscription(user_id):bot.answer_callback_query(call.id, "Obuna tasdiqlandi! Kino kodini yozing.")
+        bot.edit_message_text("Xush 
+        kelibsiz! Kino kodini yozing.", call.message.chat.id, call.message.message_id)
     else:
         bot.answer_callback_query(call.id, "Hali obuna bo'lmagansiz. Iltimos, obuna bo'ling.", show_alert=True)
 
