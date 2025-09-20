@@ -337,10 +337,6 @@
 
 
 
-
-
-
-
 import telebot
 import os
 import psycopg2
@@ -348,6 +344,14 @@ from psycopg2.extras import RealDictCursor
 import random
 import string
 import time
+import json
+import tempfile
+import io
+import logging
+
+# Logging sozlamalari
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
 
 bot = telebot.TeleBot("7960038374:AAE8oIdCkpqOdU3EDAq1GGC1-f46PjBevPo")
 SUPER_ADMIN = 6215236648  # Super admin ID
@@ -356,57 +360,72 @@ SUPER_ADMIN = 6215236648  # Super admin ID
 DATABASE_URL = "postgresql://postgres:XXpcjBwTRLctqMyJybrFXNcvnzwgxaRu@postgres.railway.internal:5432/railway"
 
 def get_db_connection():
-    global conn
-    if conn is None or conn.closed:
+    if not DATABASE_URL:
+        logging.error("DATABASE_URL environment variable not set")
+        raise ValueError("DATABASE_URL environment variable not set")
+    try:
         conn = psycopg2.connect(DATABASE_URL)
-    return conn
+        return conn
+    except Exception as e:
+        logging.error(f"Failed to connect to database: {e}")
+        raise
 
 def create_tables():
-    conn = get_db_connection()
-    cur = conn.cursor()
-    
-    # Movies table
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS movies (
-            id SERIAL PRIMARY KEY,
-            code VARCHAR(3) UNIQUE NOT NULL,
-            file_id TEXT NOT NULL,
-            description TEXT NOT NULL
-        );
-    """)
-    
-    # Admins table
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS admins (
-            id SERIAL PRIMARY KEY,
-            user_id INTEGER UNIQUE NOT NULL
-        );
-    """)
-    
-    # Channels table
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS channels (
-            id SERIAL PRIMARY KEY,
-            channel_name VARCHAR(255) UNIQUE NOT NULL
-        );
-    """)
-    
-    # Users table
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id SERIAL PRIMARY KEY,
-            user_id INTEGER UNIQUE NOT NULL
-        );
-    """)
-    
-    # Insert super admin if not exists
-    cur.execute("INSERT INTO admins (user_id) VALUES (%s) ON CONFLICT (user_id) DO NOTHING;", (SUPER_ADMIN,))
-    
-    conn.commit()
-    cur.close()
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        # Movies table
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS movies (
+                id SERIAL PRIMARY KEY,
+                code VARCHAR(3) UNIQUE NOT NULL,
+                file_id TEXT NOT NULL,
+                description TEXT NOT NULL
+            );
+        """)
+        
+        # Admins table
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS admins (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER UNIQUE NOT NULL
+            );
+        """)
+        
+        # Channels table
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS channels (
+                id SERIAL PRIMARY KEY,
+                channel_name VARCHAR(255) UNIQUE NOT NULL
+            );
+        """)
+        
+        # Users table
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER UNIQUE NOT NULL
+            );
+        """)
+        
+        # Insert super admin if not exists
+        cur.execute("INSERT INTO admins (user_id) VALUES (%s) ON CONFLICT (user_id) DO NOTHING;", (SUPER_ADMIN,))
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+        logging.info("Tables created successfully")
+    except Exception as e:
+        logging.error(f"Error creating tables: {e}")
+        raise
 
 # Load initial data
-create_tables()
+try:
+    create_tables()
+except Exception as e:
+    logging.error(f"Failed to initialize database: {e}")
+    raise
 
 def save_movie(code, file_id, description):
     conn = get_db_connection()
@@ -415,18 +434,23 @@ def save_movie(code, file_id, description):
         cur.execute("INSERT INTO movies (code, file_id, description) VALUES (%s, %s, %s) ON CONFLICT (code) DO NOTHING;", (code, file_id, description))
         conn.commit()
         return True
-    except:
+    except Exception as e:
+        logging.error(f"Error saving movie: {e}")
         return False
     finally:
         cur.close()
+        conn.close()
 
 def get_movie(code):
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=RealDictCursor)
-    cur.execute("SELECT * FROM movies WHERE code = %s;", (code,))
-    result = cur.fetchone()
-    cur.close()
-    return result
+    try:
+        cur.execute("SELECT * FROM movies WHERE code = %s;", (code,))
+        result = cur.fetchone()
+        return result
+    finally:
+        cur.close()
+        conn.close()
 
 def delete_movie(code):
     conn = get_db_connection()
@@ -437,6 +461,7 @@ def delete_movie(code):
         return cur.rowcount > 0
     finally:
         cur.close()
+        conn.close()
 
 def update_movie_code(old_code, new_code):
     conn = get_db_connection()
@@ -447,6 +472,7 @@ def update_movie_code(old_code, new_code):
         return cur.rowcount > 0
     finally:
         cur.close()
+        conn.close()
 
 def update_movie_desc(code, new_desc):
     conn = get_db_connection()
@@ -457,14 +483,18 @@ def update_movie_desc(code, new_desc):
         return cur.rowcount > 0
     finally:
         cur.close()
+        conn.close()
 
 def get_all_movies_count():
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("SELECT COUNT(*) FROM movies;")
-    count = cur.fetchone()[0]
-    cur.close()
-    return count
+    try:
+        cur.execute("SELECT COUNT(*) FROM movies;")
+        count = cur.fetchone()[0]
+        return count
+    finally:
+        cur.close()
+        conn.close()
 
 def add_admin(user_id):
     conn = get_db_connection()
@@ -477,6 +507,7 @@ def add_admin(user_id):
         return False
     finally:
         cur.close()
+        conn.close()
 
 def remove_admin(user_id):
     conn = get_db_connection()
@@ -487,14 +518,18 @@ def remove_admin(user_id):
         return cur.rowcount > 0
     finally:
         cur.close()
+        conn.close()
 
 def is_admin(user_id):
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("SELECT 1 FROM admins WHERE user_id = %s;", (user_id,))
-    result = cur.fetchone()
-    cur.close()
-    return result is not None
+    try:
+        cur.execute("SELECT 1 FROM admins WHERE user_id = %s;", (user_id,))
+        result = cur.fetchone()
+        return result is not None
+    finally:
+        cur.close()
+        conn.close()
 
 def add_channel(channel_name):
     conn = get_db_connection()
@@ -507,6 +542,7 @@ def add_channel(channel_name):
         return False
     finally:
         cur.close()
+        conn.close()
 
 def remove_channel(channel_name):
     conn = get_db_connection()
@@ -517,14 +553,18 @@ def remove_channel(channel_name):
         return cur.rowcount > 0
     finally:
         cur.close()
+        conn.close()
 
 def get_all_channels():
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("SELECT channel_name FROM channels;")
-    channels = [row[0] for row in cur.fetchall()]
-    cur.close()
-    return channels
+    try:
+        cur.execute("SELECT channel_name FROM channels;")
+        channels = [row[0] for row in cur.fetchall()]
+        return channels
+    finally:
+        cur.close()
+        conn.close()
 
 def add_user(user_id):
     conn = get_db_connection()
@@ -534,14 +574,18 @@ def add_user(user_id):
         conn.commit()
     finally:
         cur.close()
+        conn.close()
 
 def get_all_users():
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("SELECT user_id FROM users;")
-    users = set(row[0] for row in cur.fetchall())
-    cur.close()
-    return users
+    try:
+        cur.execute("SELECT user_id FROM users;")
+        users = set(row[0] for row in cur.fetchall())
+        return users
+    finally:
+        cur.close()
+        conn.close()
 
 def remove_user(user_id):
     conn = get_db_connection()
@@ -551,6 +595,7 @@ def remove_user(user_id):
         conn.commit()
     finally:
         cur.close()
+        conn.close()
 
 def generate_unique_code(length=3):
     if get_all_movies_count() >= 1000:
@@ -576,6 +621,94 @@ def check_subscription(user_id):
         except:
             return False
     return True
+
+# Download JSON files from PostgreSQL
+@bot.message_handler(commands=['download_json'])
+def download_json(m):
+    if not is_admin(m.from_user.id):
+        bot.reply_to(m, "❌ Faqat adminlar JSON fayllarni yuklab olishi mumkin.")
+        return
+    
+    sent = 0
+    failed = 0
+    
+    # Movies
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute("SELECT code, file_id, description FROM movies;")
+        movies_data = {row['code']: {"file_id": row['file_id'], "description": row['description']} for row in cur.fetchall()}
+        cur.close()
+        conn.close()
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as temp_file:
+            json.dump(movies_data, temp_file, indent=2)
+            temp_file_path = temp_file.name
+        with open(temp_file_path, 'rb') as f:
+            bot.send_document(m.chat.id, f, caption="movies.json")
+        os.remove(temp_file_path)
+        sent += 1
+    except Exception as e:
+        bot.reply_to(m, f"❌ movies.json yuborishda xato: {str(e)}")
+        failed += 1
+    
+    # Admins
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT user_id FROM admins;")
+        admins_data = [row[0] for row in cur.fetchall()]
+        cur.close()
+        conn.close()
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as temp_file:
+            json.dump(admins_data, temp_file, indent=2)
+            temp_file_path = temp_file.name
+        with open(temp_file_path, 'rb') as f:
+            bot.send_document(m.chat.id, f, caption="admins.json")
+        os.remove(temp_file_path)
+        sent += 1
+    except Exception as e:
+        bot.reply_to(m, f"❌ admins.json yuborishda xato: {str(e)}")
+        failed += 1
+    
+    # Channels
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT channel_name FROM channels;")
+        channels_data = [row[0] for row in cur.fetchall()]
+        cur.close()
+        conn.close()
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as temp_file:
+            json.dump(channels_data, temp_file, indent=2)
+            temp_file_path = temp_file.name
+        with open(temp_file_path, 'rb') as f:
+            bot.send_document(m.chat.id, f, caption="channels.json")
+        os.remove(temp_file_path)
+        sent += 1
+    except Exception as e:
+        bot.reply_to(m, f"❌ channels.json yuborishda xato: {str(e)}")
+        failed += 1
+    
+    # Users
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT user_id FROM users;")
+        users_data = [row[0] for row in cur.fetchall()]
+        cur.close()
+        conn.close()
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as temp_file:
+            json.dump(users_data, temp_file, indent=2)
+            temp_file_path = temp_file.name
+        with open(temp_file_path, 'rb') as f:
+            bot.send_document(m.chat.id, f, caption="users.json")
+        os.remove(temp_file_path)
+        sent += 1
+    except Exception as e:
+        bot.reply_to(m, f"❌ users.json yuborishda xato: {str(e)}")
+        failed += 1
+    
+    bot.reply_to(m, f"✅ JSON fayllar yuborildi: {sent} muvaffaqiyatli, {failed} xato.")
 
 @bot.message_handler(commands=['start'])
 def start(m):
@@ -784,7 +917,7 @@ def _handle_broadcast(m):
             failed += 1
             if "chat not found" in str(e).lower() or "blocked" in str(e).lower():
                 remove_user(u)
-            print(f"Xato {u}: {e}")
+            logging.error(f"Broadcast error for user {u}: {e}")
     
     del pending[user_id]
     bot.reply_to(m, f"✅ Xabar yuborildi: {sent} muvaffaqiyatli, {failed} xato. (Jami: {len(users_set)})")
@@ -814,16 +947,7 @@ def get_movie(m):
 def unsubscribed(m):
     start(m)
 
-# Pending dictni tozalash uchun (ixtiyoriy, bot to'xtatilganda)
+# Pending dictni tozalash uchun
 pending = {}
 
 bot.infinity_polling()
-
-
-
-
-
-
-
-
-
