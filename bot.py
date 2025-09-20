@@ -395,7 +395,7 @@ def start(m):
     save_data()
     
     if check_subscription(user_id):
-        bot.reply_to(m, "Xush kelibsiz! 3 xonali kino kodini yozing (masalan, 123).")
+        bot.reply_to(m, "Xush kelibsiz! Kino kodini yozing.")
     else:
         markup = telebot.types.InlineKeyboardMarkup()
         for channel in channels:
@@ -407,8 +407,8 @@ def start(m):
 def check_sub_callback(call):
     user_id = call.from_user.id
     if check_subscription(user_id):
-        bot.answer_callback_query(call.id, "Obuna tasdiqlandi! 3 xonali kino kodini yozing.")
-        bot.edit_message_text("Xush kelibsiz! 3 xonali kino kodini yozing (masalan, 123).", call.message.chat.id, call.message.message_id)
+        bot.answer_callback_query(call.id, "Obuna tasdiqlandi! Kino kodini yozing.")
+        bot.edit_message_text("Xush kelibsiz! Kino kodini yozing.", call.message.chat.id, call.message.message_id)
     else:
         bot.answer_callback_query(call.id, "Hali obuna bo'lmagansiz. Iltimos, obuna bo'ling.", show_alert=True)
 
