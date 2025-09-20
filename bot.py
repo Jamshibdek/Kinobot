@@ -328,7 +328,7 @@ import random
 import string
 import time
 
-bot = telebot.TeleBot("7454505092:AAE4SOvZ5nG-RlY8DfN3xXZBnNSyvazxgck")
+bot = telebot.TeleBot("7960038374:AAE8oIdCkpqOdU3EDAq1GGC1-f46PjBevPo")
 SUPER_ADMIN = 6215236648  # Super admin ID
 
 # Load data from JSON
