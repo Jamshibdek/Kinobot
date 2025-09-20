@@ -341,6 +341,9 @@
 
 
 
+
+
+
 import telebot
 import os
 import psycopg2
@@ -360,9 +363,7 @@ bot = telebot.TeleBot("7960038374:AAE8oIdCkpqOdU3EDAq1GGC1-f46PjBevPo")
 SUPER_ADMIN = 6215236648  # Super admin ID
 
 # PostgreSQL connection
-DATABASE_URL = "postgresql://postgres:XXpcjBwTRLctqMyJybrFXNcvnzwgxaRu@postgres.railway.internal:5432/railway"
-
-
+DATABASE_URL = "postgresql://postgres:XXpcjBwTRLctqMyJybrFXNcvnzwgxaRu@postgres.railway.internal:5432/railway")
 
 def get_db_connection():
     if not DATABASE_URL:
@@ -380,50 +381,87 @@ def create_tables():
         conn = get_db_connection()
         cur = conn.cursor()
         
-        # Eski jadvallarni o'chirish (agar kerak bo'lsa)
-        cur.execute("DROP TABLE IF EXISTS movies, admins, channels, users CASCADE;")
+        # Jadvallar mavjudligini tekshirish
+        cur.execute("""
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables 
+                WHERE table_name = 'movies'
+            );
+        """)
+        movies_exists = cur.fetchone()[0]
+        
+        cur.execute("""
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables 
+                WHERE table_name = 'admins'
+            );
+        """)
+        admins_exists = cur.fetchone()[0]
+        
+        cur.execute("""
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables 
+                WHERE table_name = 'channels'
+            );
+        """)
+        channels_exists = cur.fetchone()[0]
+        
+        cur.execute("""
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables 
+                WHERE table_name = 'users'
+            );
+        """)
+        users_exists = cur.fetchone()[0]
         
         # Movies table
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS movies (
-                id SERIAL PRIMARY KEY,
-                code VARCHAR(3) UNIQUE NOT NULL,
-                file_id TEXT NOT NULL,
-                description TEXT NOT NULL
-            );
-        """)
+        if not movies_exists:
+            cur.execute("""
+                CREATE TABLE movies (
+                    id SERIAL PRIMARY KEY,
+                    code VARCHAR(3) UNIQUE NOT NULL,
+                    file_id TEXT NOT NULL,
+                    description TEXT NOT NULL
+                );
+            """)
+            logging.info("Movies table created")
         
         # Admins table
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS admins (
-                id SERIAL PRIMARY KEY,
-                user_id BIGINT UNIQUE NOT NULL
-            );
-        """)
+        if not admins_exists:
+            cur.execute("""
+                CREATE TABLE admins (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT UNIQUE NOT NULL
+                );
+            """)
+            # Insert super admin
+            cur.execute("INSERT INTO admins (user_id) VALUES (%s) ON CONFLICT (user_id) DO NOTHING;", (SUPER_ADMIN,))
+            logging.info("Admins table created and super admin inserted")
         
         # Channels table
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS channels (
-                id SERIAL PRIMARY KEY,
-                channel_name VARCHAR(255) UNIQUE NOT NULL
-            );
-        """)
+        if not channels_exists:
+            cur.execute("""
+                CREATE TABLE channels (
+                    id SERIAL PRIMARY KEY,
+                    channel_name VARCHAR(255) UNIQUE NOT NULL
+                );
+            """)
+            logging.info("Channels table created")
         
         # Users table
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                id SERIAL PRIMARY KEY,
-                user_id BIGINT UNIQUE NOT NULL
-            );
-        """)
-        
-        # Insert super admin if not exists
-        cur.execute("INSERT INTO admins (user_id) VALUES (%s) ON CONFLICT (user_id) DO NOTHING;", (SUPER_ADMIN,))
+        if not users_exists:
+            cur.execute("""
+                CREATE TABLE users (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT UNIQUE NOT NULL
+                );
+            """)
+            logging.info("Users table created")
         
         conn.commit()
         cur.close()
         conn.close()
-        logging.info("Tables created successfully")
+        logging.info("Tables checked/created successfully")
     except Exception as e:
         logging.error(f"Error creating tables: {e}")
         raise
@@ -802,6 +840,7 @@ def remove_channel_cmd(m):
 @bot.message_handler(commands=['add_movie'])
 def add_movie_start(m):
     if not is_admin(m.from_user.id):
+        bot.reply_to(m, "❌ Faqat adminlar kino qo'shishi mumkin.")
         return
     pending[m.from_user.id] = {"action": "add_movie", "step": 1, "data": {}}
     bot.reply_to(m, "Kino videosini yuboring (video yoki document sifatida).")
@@ -840,8 +879,9 @@ def handle_movie_desc(m):
 
 # Kino o'chirish
 @bot.message_handler(commands=['delete_movie'])
-def delete_movie(m):
+def delete_movie_cmd(m):
     if not is_admin(m.from_user.id):
+        bot.reply_to(m, "❌ Faqat adminlar kino o'chirishi mumkin.")
         return
     try:
         code = m.text.split()[1]
@@ -856,6 +896,7 @@ def delete_movie(m):
 @bot.message_handler(commands=['edit_movie'])
 def edit_movie_start(m):
     if not is_admin(m.from_user.id):
+        bot.reply_to(m, "❌ Faqat adminlar kino tahrirlashi mumkin.")
         return
     try:
         parts = m.text.split(maxsplit=3)
@@ -893,6 +934,7 @@ def edit_movie_start(m):
 @bot.message_handler(commands=['broadcast'])
 def broadcast_start(m):
     if not is_admin(m.from_user.id):
+        bot.reply_to(m, "❌ Faqat adminlar broadcast yuborishi mumkin.")
         return
     if m.from_user.id in pending:
         bot.reply_to(m, "Avval boshqa actionni tugating!")
@@ -936,6 +978,7 @@ def _handle_broadcast(m):
 @bot.message_handler(commands=['stats'])
 def stats(m):
     if not is_admin(m.from_user.id):
+        bot.reply_to(m, "❌ Faqat adminlar statistikani ko'rishi mumkin.")
         return
     reg_users = len(get_all_users())
     movie_count = get_all_movies_count()
@@ -957,7 +1000,7 @@ def handle_movie_request(m):
 def unsubscribed(m):
     start(m)
 
-# Pending dict Garibaldi tozalash uchun
+# Pending dictni tozalash uchun
 pending = {}
 
 bot.infinity_polling()
