@@ -340,6 +340,7 @@
 
 
 
+
 import telebot
 import os
 import psycopg2
@@ -360,6 +361,8 @@ SUPER_ADMIN = 6215236648  # Super admin ID
 
 # PostgreSQL connection
 DATABASE_URL = "postgresql://postgres:XXpcjBwTRLctqMyJybrFXNcvnzwgxaRu@postgres.railway.internal:5432/railway"
+
+
 
 def get_db_connection():
     if not DATABASE_URL:
@@ -390,7 +393,7 @@ def create_tables():
             );
         """)
         
-        # Admins table (user_id BIGINT ga o'zgartirildi)
+        # Admins table
         cur.execute("""
             CREATE TABLE IF NOT EXISTS admins (
                 id SERIAL PRIMARY KEY,
@@ -406,7 +409,7 @@ def create_tables():
             );
         """)
         
-        # Users table (user_id BIGINT ga o'zgartirildi)
+        # Users table
         cur.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id SERIAL PRIMARY KEY,
@@ -446,7 +449,7 @@ def save_movie(code, file_id, description):
         cur.close()
         conn.close()
 
-def get_movie(code):
+def get_movie_from_db(code):
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=RealDictCursor)
     try:
@@ -611,7 +614,7 @@ def generate_unique_code(length=3):
     max_attempts = 100
     while attempts < max_attempts:
         code = ''.join(random.choices(string.digits, k=length))
-        if get_movie(code) is None:
+        if get_movie_from_db(code) is None:
             return code
         attempts += 1
     raise ValueError("Yangi 3 xonali kod topilmadi.")
@@ -860,7 +863,7 @@ def edit_movie_start(m):
             bot.reply_to(m, "Foydalanish: /edit_movie <old_code> code <new_code> yoki /edit_movie <old_code> desc <new_desc>")
             return
         old_code = parts[1]
-        if get_movie(old_code) is None:
+        if get_movie_from_db(old_code) is None:
             bot.reply_to(m, "Kod topilmadi.")
             return
         if parts[2] == "code":
@@ -868,7 +871,7 @@ def edit_movie_start(m):
             if len(new_code) != 3 or not new_code.isdigit():
                 bot.reply_to(m, "Yangi kod 3 xonali raqam bo'lishi kerak (masalan, 123).")
                 return
-            if get_movie(new_code) is not None:
+            if get_movie_from_db(new_code) is not None:
                 bot.reply_to(m, "Yangi kod allaqachon mavjud.")
                 return
             if update_movie_code(old_code, new_code):
@@ -939,11 +942,11 @@ def stats(m):
     active_users = reg_users
     bot.reply_to(m, f"Statistika:\nRo'yxatdan o'tganlar: {reg_users}\nFoydalanayotganlar: {active_users}\nKinolar soni: {movie_count}")
 
-# Kino olish
+# Kino so'rovlarni qayta ishlash
 @bot.message_handler(func=lambda m: not m.text.startswith('/') and check_subscription(m.from_user.id))
-def get_movie(m):
+def handle_movie_request(m):
     code = m.text.strip()
-    movie = get_movie(code)
+    movie = get_movie_from_db(code)
     if movie:
         bot.send_video(m.chat.id, movie['file_id'], caption=movie['description'])
     else:
@@ -954,7 +957,7 @@ def get_movie(m):
 def unsubscribed(m):
     start(m)
 
-# Pending dictni tozalash uchun
+# Pending dict Garibaldi tozalash uchun
 pending = {}
 
 bot.infinity_polling()
